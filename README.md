@@ -35,6 +35,17 @@ object, optionally followed by a newline:
   (e.g. `0.5`); values below `0.0` clamp to `0.0`; values above `1.0` clamp to
   `1.0`; omitted → plays at **100% volume**.
 
+Every request means **play from the beginning**: any playback of that sound
+currently in progress is stopped and rewound first, so it always plays its
+full length from the start (it does not layer over itself). A `volume` that
+resolves to `0` (including negative values) means **stop** instead of play:
+
+```json
+{"name": "beep.aiff", "volume": 0}
+```
+
+Sounds do not loop: a sound stops on its own when it reaches the end.
+
 Malformed JSON is silently ignored (nothing plays, no error), as is a request
 for an unknown sound name. The connection is closed after the request.
 
@@ -185,14 +196,19 @@ export default function (pi: ExtensionAPI) {
 
 - One request per connection; open, write one JSON object, close.
 - Sounds are keyed per-instance: each name maps to a single `NSSound`, so a
-  sound can never layer over itself. If a request arrives while that sound is
-  still playing, `NSSound.play()` is a no-op — the request is silently ignored
-  and the existing playback continues uninterrupted (it does **not** restart).
-  Different names play on separate instances and can overlap. Fine for short
-  beeps, where rapid triggers simply collapse into one.
-- Volume changes apply to the loaded instance. The new value persists, so the
-  next `play()` of that name uses the last requested volume until another
-  volume is sent. (Names sharing an instance — e.g. `beep` and `beep.aiff` —
+  sound can never layer over itself. Every request restarts that sound from the
+  beginning: any in-flight playback is stopped (`NSSound.stop()` rewinds to 0)
+  and started again, so rapid triggers cut the current playback and start over
+  rather than collapsing into one. Different names play on separate instances
+  and can overlap.
+- `volume: 0` is the stop command: it halts playback of that name without
+  changing the instance's persisted volume. `NSSound.stop()` is safe to call
+  when nothing is playing.
+- Sounds do not loop, so each play runs for the file's full duration and then
+  stops on its own with no request needed.
+- Volume is applied on every restart request: omitted → 100%. A stop request
+  (`volume: 0`) leaves the instance's volume untouched, so it does not silence
+  a later restart. (Names sharing an instance — e.g. `beep` and `beep.aiff` —
   share this volume state.)
 - Unknown/undecodable files in the sound directory are skipped with a warning
   on stderr at startup.

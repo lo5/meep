@@ -51,9 +51,14 @@ func loadSounds(from directory: String) -> [String: NSSound] {
 //
 // One connection = one request. The message is a single JSON object,
 // optionally followed by a newline:
-//   {"name": "Glass.aiff", "volume": 0.5}
+//   {"name": "meep.aiff", "volume": 0.5}
 // `name` is the sound filename (or unique base name); `volume` is optional
 // (defaults to 1.0) and clamped to [0.0, 1.0].
+//
+// Every request means "play from the beginning": any in-flight playback of
+// that sound is stopped and rewound first, so it always plays its full length
+// from the start. `volume: 0` (or any value that clamps to 0) means "stop".
+//
 // Malformed JSON and unknown sound names are silently ignored (no playback,
 // no error).
 
@@ -72,7 +77,21 @@ func handleRequest(_ data: Data?) {
           let sound = sounds[request.name]
     else { return }  // malformed request or unknown sound -> do nothing
 
-    sound.volume = Float(clampedVolume(request.volume ?? 1.0))
+    let volume = clampedVolume(request.volume ?? 1.0)
+
+    // volume=0 is the stop command: halt playback without touching the
+    // instance's persisted volume.
+    guard volume > 0 else {
+        sound.stop()
+        return
+    }
+
+    // Every other request restarts the sound from the beginning. stop()
+    // rewinds on its own; currentTime=0 makes that intent explicit and guards
+    // against any stop()/play() timing race.
+    sound.volume = Float(volume)
+    sound.stop()
+    sound.currentTime = 0
     sound.play()
 }
 
@@ -140,7 +159,13 @@ do {
         signalSources.append(source)
     }
 
-    RunLoop.main.run()
+    // withExtendedLifetime keeps the resumed sources strongly referenced for
+    // the life of the process. Without it the optimizer can prove the local
+    // array is never read and elide it in release builds, releasing the
+    // sources so the handlers never fire.
+    withExtendedLifetime(signalSources) {
+        RunLoop.main.run()
+    }
 } catch {
     fputs("meepmeep: could not listen on '\(socketPath)': \(error)\n", stderr)
     exit(1)
