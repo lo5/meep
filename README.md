@@ -82,9 +82,8 @@ launchd agent can scan it at startup without triggering a Documents/Desktop/
 Downloads permission prompt. Point `sound-directory` at a protected folder
 (e.g. `~/Documents/Sounds`) and macOS will ask for access the first time.
 
-Sample sounds (`meep.aif`, `ping.aif`) live in the repo's `sounds/`
-directory. If you want them picked up by the default configuration, copy them
-into your user sounds library:
+Some sample sounds live in the repo's `sounds/` directory. If you want them 
+picked up by the default configuration, copy them into your user sounds library:
 
 ```sh
 mkdir -p ~/Library/Sounds
@@ -157,9 +156,6 @@ agent lifecycle so it beeps as the agent works. Drop this in
  * Plays sounds through the meepmeep service (Unix socket at
  * /tmp/meepmeep.sock) at key points in the agent lifecycle.
  *
- * - `agent_settled`: Pi is done and waiting for input → "ping".
- * - `message_start`: any message (user, assistant, or toolResult) begins → "tock".
- * - `tool_call`: a tool call is about to execute → "tick".
  */
 
 import { connect } from "node:net";
@@ -178,17 +174,16 @@ function play(name: string, volume: number): void {
 
 export default function (pi: ExtensionAPI) {
 	pi.on("message_start", async () => {
-		play("meep", 1);
+		play("tick", 1);
 	});
 
 	pi.on("tool_call", async () => {
-		play("meep", 1);
+		play("tock", 1);
 	});
 
 	pi.on("agent_settled", async () => {
-		play("ping", 0.75);
+		play("meep", 1);
 	});
-
 }
 ```
 
