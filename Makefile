@@ -14,6 +14,7 @@ SOCKET      ?= /tmp/meepmeep.sock
 LOG         ?= /tmp/meepmeep.log
 BINARY      ?= $(CURDIR)/.build/release/meepmeep
 DOMAIN      := gui/$(shell id -u)
+BOOTOUT_WAIT ?= 2
 
 .DEFAULT_GOAL := help
 
@@ -55,6 +56,8 @@ uninstall: ## Stop and remove the LaunchAgent
 
 restart: ## Restart the installed LaunchAgent
 	@-launchctl bootout $(DOMAIN)/$(LABEL) 2>/dev/null || true
+	@echo "waiting $(BOOTOUT_WAIT)s for bootout to settle..."
+	@sleep $(BOOTOUT_WAIT)
 	launchctl bootstrap $(DOMAIN) "$(PLIST_DST)"
 	@echo "restarted $(LABEL)"
 
