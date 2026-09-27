@@ -49,35 +49,59 @@ func loadSounds(from directory: String) -> [String: NSSound] {
 
 // MARK: - Request handling
 //
-// One connection = one request. The message is a single JSON object,
-// optionally followed by a newline:
-//   {"name": "meep.aiff", "volume": 0.5}
+// One connection = one request. The message is plain text, optionally
+// followed by a newline, of the form:
+//   name@volume
 // `name` is the sound filename (or unique base name); `volume` is optional
-// (defaults to 1.0) and clamped to [0.0, 1.0].
+// (defaults to 100, i.e. full volume) and clamped to [0, 100]. The separator
+// is the first `@` in the message; everything before it is the name,
+// everything after it is the volume. So `meep.aiff`, `meep.aiff@50`, and
+// `meep@50` are all valid, while a bare `meep` plays at full volume.
 //
 // Every request means "play from the beginning": any in-flight playback of
 // that sound is stopped and rewound first, so it always plays its full length
 // from the start. `volume: 0` (or any value that clamps to 0) means "stop".
 //
-// Malformed JSON and unknown sound names are silently ignored (no playback,
-// no error).
+// Malformed requests and unknown sound names are silently ignored (no
+// playback, no error).
 
-struct PlayRequest: Decodable {
+struct PlayRequest {
     let name: String
-    let volume: Double?
+    let volume: Int?
 }
 
-func clampedVolume(_ raw: Double) -> Double {
-    return min(max(raw, 0.0), 1.0)
+// Parses the plain-text wire format: `name` or `name@volume`. Returns nil
+// when the name is empty or the volume is present but not a valid integer.
+func parseRequest(_ raw: String) -> PlayRequest? {
+    let message = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !message.isEmpty else { return nil }
+
+    let parts = message.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+    let name = String(parts[0]).trimmingCharacters(in: .whitespaces)
+    guard !name.isEmpty else { return nil }
+
+    // No '@' at all (or nothing after it) -> default volume.
+    guard parts.count == 2, !parts[1].isEmpty else {
+        return PlayRequest(name: name, volume: nil)
+    }
+
+    let volumeText = parts[1].trimmingCharacters(in: .whitespaces)
+    guard let volume = Int(volumeText) else { return nil }
+    return PlayRequest(name: name, volume: volume)
+}
+
+func clampedVolume(_ raw: Int) -> Int {
+    return min(max(raw, 0), 100)
 }
 
 func handleRequest(_ data: Data?) {
     guard let data, !data.isEmpty,
-          let request = try? JSONDecoder().decode(PlayRequest.self, from: data),
+          let raw = String(data: data, encoding: .utf8),
+          let request = parseRequest(raw),
           let sound = sounds[request.name]
     else { return }  // malformed request or unknown sound -> do nothing
 
-    let volume = clampedVolume(request.volume ?? 1.0)
+    let volume = clampedVolume(request.volume ?? 100)
 
     // volume=0 is the stop command: halt playback without touching the
     // instance's persisted volume.
@@ -89,7 +113,7 @@ func handleRequest(_ data: Data?) {
     // Every other request restarts the sound from the beginning. stop()
     // rewinds on its own; currentTime=0 makes that intent explicit and guards
     // against any stop()/play() timing race.
-    sound.volume = Float(volume)
+    sound.volume = Float(volume) / 100.0
     sound.stop()
     sound.currentTime = 0
     sound.play()

@@ -20,34 +20,37 @@ latency.
 ## Protocol
 
 The service listens on a Unix domain socket (default
-`/tmp/meepmeep.sock`). Each connection sends one request as a single JSON
-object, optionally followed by a newline:
+`/tmp/meepmeep.sock`). Each connection sends one request as plain text,
+optionally followed by a newline:
 
-```json
-{"name": "beep.aiff", "volume": 0.5}
+```
+name@volume
 ```
 
-- `name` — required. The filename from the sounds directory. Both `"beep.aiff"`
-  and `"beep"` (without extension) work, as long as the base name is unique.
-  Because the name is a JSON string, it may contain spaces or other characters
-  that would be ambiguous in a line-based text protocol.
-- `volume` — optional. Loudness clamped to `[0.0, 1.0]`: `0.0`–`1.0` used as-is
-  (e.g. `0.5`); values below `0.0` clamp to `0.0`; values above `1.0` clamp to
-  `1.0`; omitted → plays at **100% volume**.
+- `name` — required. The filename from the sounds directory. Both `beep.aiff`
+  and `beep` (without extension) work, as long as the base name is unique. A
+  name containing a `@` is not addressable; everything after the first `@` is
+  parsed as the volume.
+- `volume` — optional. An integer loudness percentage clamped to `[0, 100]`:
+  `0`–`100` used as-is (e.g. `50`); values below `0` clamp to `0`; values above
+  `100` clamp to `100`; omitted (no `@`, or nothing after it) → plays at
+  **100% volume**. Non-integers (e.g. `50.5`) are rejected as malformed.
 
 Every request means **play from the beginning**: any playback of that sound
 currently in progress is stopped and rewound first, so it always plays its
 full length from the start (it does not layer over itself). A `volume` that
 resolves to `0` (including negative values) means **stop** instead of play:
 
-```json
-{"name": "beep.aiff", "volume": 0}
+```
+tick@0
 ```
 
 Sounds do not loop: a sound stops on its own when it reaches the end.
 
-Malformed JSON is silently ignored (nothing plays, no error), as is a request
-for an unknown sound name. The connection is closed after the request.
+A malformed request (empty name, or a non-integer volume such as `tick@loud`
+or `tick@50.5`)
+is silently ignored (nothing plays, no error), as is a request for an unknown
+sound name. The connection is closed after the request.
 
 ## Build
 
@@ -99,8 +102,8 @@ Example:
 Then from another terminal:
 
 ```sh
-printf '{"name":"beep.aiff","volume":0.4}\n' | nc -U /tmp/meepmeep.sock
-printf '{"name":"beep"}\n' | nc -U /tmp/meepmeep.sock
+printf 'beep.aiff@40\n' | nc -U /tmp/meepmeep.sock
+printf 'beep\n' | nc -U /tmp/meepmeep.sock
 ```
 
 ## Install
@@ -132,9 +135,8 @@ The Unix domain socket needs no extra dependencies:
 import { connect } from "node:net";
 
 function play(name: string, volume?: number) {
-	const payload = JSON.stringify(
-		volume !== undefined ? { name, volume } : { name },
-	);
+	const payload =
+		volume !== undefined ? `${name}@${volume}` : name;
 	const sock = connect("/tmp/meepmeep.sock", () => {
 		sock.write(payload + "\n");
 		sock.end();
@@ -164,7 +166,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const SOCKET_PATH = "/tmp/meepmeep.sock";
 
 function play(name: string, volume: number): void {
-	const payload = JSON.stringify({ name, volume }) + "\n";
+	const payload = `${name}@${volume}` + "\n";
 	const sock = connect(SOCKET_PATH, () => {
 		sock.write(payload);
 		sock.end();
@@ -174,35 +176,35 @@ function play(name: string, volume: number): void {
 
 export default function (pi: ExtensionAPI) {
 	pi.on("message_start", async () => {
-		play("tick", 1);
+		play("tick", 100);
 	});
 
 	pi.on("tool_call", async () => {
-		play("tock", 1);
+		play("tock", 100);
 	});
 
 	pi.on("agent_settled", async () => {
-		play("meep", 1);
+		play("meep", 100);
 	});
 }
 ```
 
 ## Notes
 
-- One request per connection; open, write one JSON object, close.
+- One request per connection; open, write one `name@volume` line, close.
 - Sounds are keyed per-instance: each name maps to a single `NSSound`, so a
   sound can never layer over itself. Every request restarts that sound from the
   beginning: any in-flight playback is stopped (`NSSound.stop()` rewinds to 0)
   and started again, so rapid triggers cut the current playback and start over
   rather than collapsing into one. Different names play on separate instances
   and can overlap.
-- `volume: 0` is the stop command: it halts playback of that name without
+- `tick@0` is the stop command: it halts playback of that name without
   changing the instance's persisted volume. `NSSound.stop()` is safe to call
   when nothing is playing.
 - Sounds do not loop, so each play runs for the file's full duration and then
   stops on its own with no request needed.
 - Volume is applied on every restart request: omitted → 100%. A stop request
-  (`volume: 0`) leaves the instance's volume untouched, so it does not silence
+  (`@0`) leaves the instance's volume untouched, so it does not silence
   a later restart. (Names sharing an instance — e.g. `beep` and `beep.aiff` —
   share this volume state.)
 - Unknown/undecodable files in the sound directory are skipped with a warning
