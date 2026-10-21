@@ -27,7 +27,7 @@ optionally followed by a newline:
 name@volume
 ```
 
-- `name` — required. The filename from the sounds directory. Both `beep.aiff`
+- `name` — required. The filename from the sounds directory. Both `beep.mp3`
   and `beep` (without extension) work, as long as the base name is unique. A
   name containing a `@` is not addressable; everything after the first `@` is
   parsed as the volume.
@@ -90,7 +90,7 @@ picked up by the default configuration, copy them into your user sounds library:
 
 ```sh
 mkdir -p ~/Library/Sounds
-cp sounds/*.aif ~/Library/Sounds/
+cp sounds/*.mp3 ~/Library/Sounds/
 ```
 
 Example:
@@ -102,7 +102,7 @@ Example:
 Then from another terminal:
 
 ```sh
-printf 'beep.aiff@40\n' | nc -U /tmp/meepmeep.sock
+printf 'beep.mp3@40\n' | nc -U /tmp/meepmeep.sock
 printf 'beep\n' | nc -U /tmp/meepmeep.sock
 ```
 
@@ -205,7 +205,7 @@ export default function (pi: ExtensionAPI) {
   stops on its own with no request needed.
 - Volume is applied on every restart request: omitted → 100%. A stop request
   (`@0`) leaves the instance's volume untouched, so it does not silence
-  a later restart. (Names sharing an instance — e.g. `beep` and `beep.aiff` —
+  a later restart. (Names sharing an instance — e.g. `beep` and `beep.mp3` —
   share this volume state.)
 - Unknown/undecodable files in the sound directory are skipped with a warning
   on stderr at startup.
